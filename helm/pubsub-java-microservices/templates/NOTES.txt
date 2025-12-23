@@ -1,0 +1,61 @@
+1. Verify all services are running:
+   kubectl get pods -n {{ .Release.Namespace }}
+
+2. Check service status:
+   kubectl get svc -n {{ .Release.Namespace }}
+
+3. View logs:
+   # Producer
+   kubectl logs -f deployment/producer -n {{ .Release.Namespace }}
+   
+   # Order Processing
+   kubectl logs -f deployment/order-processing -n {{ .Release.Namespace }}
+   
+   # Notification
+   kubectl logs -f deployment/notification -n {{ .Release.Namespace }}
+
+4. Access services (port-forward):
+   # Producer
+   kubectl port-forward --namespace {{ .Release.Namespace }} svc/producer 8080:8080
+   # Health check: curl http://localhost:8080/actuator/health
+   
+   # Order Processing
+   kubectl port-forward --namespace {{ .Release.Namespace }} svc/order-processing 8081:8080
+   # Health check: curl http://localhost:8081/actuator/health
+   
+   # Notification
+   kubectl port-forward --namespace {{ .Release.Namespace }} svc/notification 8082:8080
+   # Health check: curl http://localhost:8082/actuator/health
+
+5. Pub/Sub Configuration:
+   Project ID: {{ include "pubsub-java-microservices.projectId" . }}
+   Topic: {{ .Values.pubsub.topic.name }}
+   Subscriptions:
+     - {{ .Values.pubsub.subscriptions.orderProcessing.name }}
+     - {{ .Values.pubsub.subscriptions.notification.name }}
+   {{- if .Values.pubsub.emulator.enabled }}
+   Emulator: {{ .Values.pubsub.emulator.host }}:{{ .Values.pubsub.emulator.port }}
+   {{- else }}
+   Using real Google Cloud Pub/Sub
+   {{- end }}
+
+6. Verify Pub/Sub resources exist:
+   {{- if .Values.pubsub.emulator.enabled }}
+   # Using Pub/Sub Emulator
+   export PUBSUB_EMULATOR_HOST={{ .Values.pubsub.emulator.host }}:{{ .Values.pubsub.emulator.port }}
+   gcloud pubsub topics list --project={{ include "pubsub-java-microservices.projectId" . }}
+   gcloud pubsub subscriptions list --project={{ include "pubsub-java-microservices.projectId" . }}
+   {{- else }}
+   # Using real GCP
+   gcloud pubsub topics list --project={{ include "pubsub-java-microservices.projectId" . }}
+   gcloud pubsub subscriptions list --project={{ include "pubsub-java-microservices.projectId" . }}
+   {{- end }}
+
+7. For GCP Workload Identity setup:
+   Ensure service accounts have the proper annotations:
+   - Producer: {{ .Values.producer.serviceAccount.name }}
+   - Order Processing: {{ .Values.orderProcessing.serviceAccount.name }}
+   - Notification: {{ .Values.notification.serviceAccount.name }}
+   
+   See README.md for detailed GCP Workload Identity configuration.
+

@@ -1,0 +1,76 @@
+{{- if .Values.notification.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification
+  labels:
+    {{- if .Values.labels }}
+    {{- toYaml .Values.labels | nindent 4 }}
+    {{- end }}
+    app.kubernetes.io/component: notification
+spec:
+  replicas: {{ .Values.notification.deployment.replicas }}
+  selector:
+    matchLabels:
+      {{- if .Values.selectorLabels }}
+      {{- toYaml .Values.selectorLabels | nindent 6 }}
+      {{- end }}
+      app.kubernetes.io/component: notification
+  template:
+    metadata:
+      labels:
+        {{- if .Values.labels }}
+        {{- toYaml .Values.labels | nindent 8 }}
+        {{- end }}
+        app.kubernetes.io/component: notification
+    spec:
+      serviceAccountName: {{ .Values.notification.serviceAccount.name }}
+      containers:
+      - name: notification
+        image: "{{ .Values.imageRegistry }}/{{ .Values.notification.image.repository }}:{{ .Values.notification.image.tag }}"
+        imagePullPolicy: {{ .Values.notification.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: PUBSUB_PROJECT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: pubsub-config
+              key: PUBSUB_PROJECT_ID
+        - name: PUBSUB_SUBSCRIPTION_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: pubsub-config
+              key: PUBSUB_SUBSCRIPTION_NOTIFICATION
+        {{- if .Values.pubsub.emulator.enabled }}
+        - name: PUBSUB_EMULATOR_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: pubsub-config
+              key: PUBSUB_EMULATOR_HOST
+        {{- end }}
+        resources:
+          {{- toYaml .Values.notification.deployment.resources | nindent 10 }}
+        {{- if .Values.notification.probes.liveness.enabled }}
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: {{ .Values.notification.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.notification.probes.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.notification.probes.liveness.timeoutSeconds }}
+          failureThreshold: {{ .Values.notification.probes.liveness.failureThreshold }}
+        {{- end }}
+        {{- if .Values.notification.probes.readiness.enabled }}
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: {{ .Values.notification.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.notification.probes.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.notification.probes.readiness.timeoutSeconds }}
+          failureThreshold: {{ .Values.notification.probes.readiness.failureThreshold }}
+        {{- end }}
+{{- end }}
+

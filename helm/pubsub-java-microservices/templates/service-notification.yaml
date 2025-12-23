@@ -1,0 +1,22 @@
+{{- if .Values.notification.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification
+  labels:
+    {{- if .Values.labels }}
+    {{- toYaml .Values.labels | nindent 4 }}
+    {{- end }}
+    app.kubernetes.io/component: notification
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8080
+  selector:
+    {{- if .Values.selectorLabels }}
+    {{- toYaml .Values.selectorLabels | nindent 4 }}
+    {{- end }}
+    app.kubernetes.io/component: notification
+{{- end }}
+

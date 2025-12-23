@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pubsub-config
+  {{- if .Values.labels }}
+  labels:
+    {{- toYaml .Values.labels | nindent 4 }}
+  {{- end }}
+data:
+  PUBSUB_PROJECT_ID: {{ include "pubsub-java-microservices.projectId" . | quote }}
+  PUBSUB_TOPIC_NAME: {{ .Values.pubsub.topic.name | quote }}
+  PUBSUB_SUBSCRIPTION_ORDER_PROCESSING: {{ .Values.pubsub.subscriptions.orderProcessing.name | quote }}
+  PUBSUB_SUBSCRIPTION_NOTIFICATION: {{ .Values.pubsub.subscriptions.notification.name | quote }}
+  {{- if .Values.pubsub.emulator.enabled }}
+  PUBSUB_EMULATOR_HOST: {{ printf "%s:%d" .Values.pubsub.emulator.host .Values.pubsub.emulator.port | quote }}
+  {{- end }}
+

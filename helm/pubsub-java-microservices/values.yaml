@@ -1,0 +1,178 @@
+# Default values for pubsub-java-microservices
+# This is a YAML-formatted file.
+
+# Global settings
+global:
+  gcp:
+    projectId: playground-377422
+    # For GCP Workload Identity (GKE)
+    workloadIdentity:
+      enabled: true
+      serviceAccount: pubsub-microservices@playground-377422.iam.gserviceaccount.com
+
+# Image registry configuration
+imageRegistry: docker.io
+imagePullPolicy: Always
+
+# Producer service configuration
+producer:
+  enabled: true
+  image:
+    repository: esara/pubsub-producer
+    tag: latest
+    pullPolicy: Always
+  
+  serviceAccount:
+    create: true
+    name: producer-service-account
+    annotations:
+      # For GCP Workload Identity (set your GSA)
+      iam.gke.io/gcp-service-account: pubsub-producer@playground-377422.iam.gserviceaccount.com
+  
+  deployment:
+    replicas: 1
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "1000m"
+  
+  # Deploy as Job instead of Deployment (for one-time message publishing)
+  job:
+    enabled: false
+    backoffLimit: 3
+
+# Order Processing service configuration
+orderProcessing:
+  enabled: true
+  image:
+    repository: esara/pubsub-order-processing
+    tag: latest
+    pullPolicy: Always
+  
+  serviceAccount:
+    create: true
+    name: order-processing-service-account
+    annotations:
+      # For GCP Workload Identity (set your GSA)
+      iam.gke.io/gcp-service-account: pubsub-order-processing@playground-377422.iam.gserviceaccount.com
+  
+  deployment:
+    replicas: 2
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "1000m"
+  
+  # Health checks
+  probes:
+    liveness:
+      enabled: true
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 3
+  
+  # Horizontal Pod Autoscaler
+  hpa:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Pod Disruption Budget
+  pdb:
+    enabled: false
+    minAvailable: 1
+
+# Notification service configuration
+notification:
+  enabled: true
+  image:
+    repository: esara/pubsub-notification
+    tag: latest
+    pullPolicy: Always
+  
+  serviceAccount:
+    create: true
+    name: notification-service-account
+    annotations:
+      # For GCP Workload Identity (set your GSA)
+      iam.gke.io/gcp-service-account: pubsub-notification@playground-377422.iam.gserviceaccount.com
+  
+  deployment:
+    replicas: 2
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "1000m"
+  
+  # Health checks
+  probes:
+    liveness:
+      enabled: true
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 3
+  
+  # Horizontal Pod Autoscaler
+  hpa:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Pod Disruption Budget
+  pdb:
+    enabled: false
+    minAvailable: 1
+
+# Google Cloud Pub/Sub Configuration
+pubsub:
+  projectId: playground-377422
+  topic:
+    name: orders-topic
+  subscriptions:
+    orderProcessing:
+      name: order-processing-subscription
+    notification:
+      name: notification-subscription
+  
+  # Pub/Sub Emulator (for local development/testing)
+  emulator:
+    enabled: false
+    host: pubsub-emulator
+    port: 8085
+
+# Labels and annotations
+# Only include these if you want to add labels/selectors
+#labels:
+#  app.kubernetes.io/name: pubsub-java-microservices
+#  app.kubernetes.io/instance: pubsub-java-microservices
+#selectorLabels:
+#  app.kubernetes.io/name: pubsub-java-microservices
+#  app.kubernetes.io/instance: pubsub-java-microservices
+

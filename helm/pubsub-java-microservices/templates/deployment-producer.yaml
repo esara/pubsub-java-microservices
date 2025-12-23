@@ -1,0 +1,70 @@
+{{- if .Values.producer.enabled }}
+{{- if not .Values.producer.job.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: producer
+  labels:
+    {{- if .Values.labels }}
+    {{- toYaml .Values.labels | nindent 4 }}
+    {{- end }}
+    app.kubernetes.io/component: producer
+spec:
+  replicas: {{ .Values.producer.deployment.replicas }}
+  selector:
+    matchLabels:
+      {{- if .Values.selectorLabels }}
+      {{- toYaml .Values.selectorLabels | nindent 6 }}
+      {{- end }}
+      app.kubernetes.io/component: producer
+  template:
+    metadata:
+      labels:
+        {{- if .Values.labels }}
+        {{- toYaml .Values.labels | nindent 8 }}
+        {{- end }}
+        app.kubernetes.io/component: producer
+    spec:
+      serviceAccountName: {{ .Values.producer.serviceAccount.name }}
+      containers:
+      - name: producer
+        image: "{{ .Values.imageRegistry }}/{{ .Values.producer.image.repository }}:{{ .Values.producer.image.tag }}"
+        imagePullPolicy: {{ .Values.producer.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: PUBSUB_PROJECT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: pubsub-config
+              key: PUBSUB_PROJECT_ID
+        - name: PUBSUB_TOPIC_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: pubsub-config
+              key: PUBSUB_TOPIC_NAME
+        {{- if .Values.pubsub.emulator.enabled }}
+        - name: PUBSUB_EMULATOR_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: pubsub-config
+              key: PUBSUB_EMULATOR_HOST
+        {{- end }}
+        resources:
+          {{- toYaml .Values.producer.deployment.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+{{- end }}
+{{- end }}
+

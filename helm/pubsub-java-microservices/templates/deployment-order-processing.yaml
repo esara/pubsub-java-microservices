@@ -1,0 +1,76 @@
+{{- if .Values.orderProcessing.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-processing
+  labels:
+    {{- if .Values.labels }}
+    {{- toYaml .Values.labels | nindent 4 }}
+    {{- end }}
+    app.kubernetes.io/component: order-processing
+spec:
+  replicas: {{ .Values.orderProcessing.deployment.replicas }}
+  selector:
+    matchLabels:
+      {{- if .Values.selectorLabels }}
+      {{- toYaml .Values.selectorLabels | nindent 6 }}
+      {{- end }}
+      app.kubernetes.io/component: order-processing
+  template:
+    metadata:
+      labels:
+        {{- if .Values.labels }}
+        {{- toYaml .Values.labels | nindent 8 }}
+        {{- end }}
+        app.kubernetes.io/component: order-processing
+    spec:
+      serviceAccountName: {{ .Values.orderProcessing.serviceAccount.name }}
+      containers:
+      - name: order-processing
+        image: "{{ .Values.imageRegistry }}/{{ .Values.orderProcessing.image.repository }}:{{ .Values.orderProcessing.image.tag }}"
+        imagePullPolicy: {{ .Values.orderProcessing.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: PUBSUB_PROJECT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: pubsub-config
+              key: PUBSUB_PROJECT_ID
+        - name: PUBSUB_SUBSCRIPTION_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: pubsub-config
+              key: PUBSUB_SUBSCRIPTION_ORDER_PROCESSING
+        {{- if .Values.pubsub.emulator.enabled }}
+        - name: PUBSUB_EMULATOR_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: pubsub-config
+              key: PUBSUB_EMULATOR_HOST
+        {{- end }}
+        resources:
+          {{- toYaml .Values.orderProcessing.deployment.resources | nindent 10 }}
+        {{- if .Values.orderProcessing.probes.liveness.enabled }}
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: {{ .Values.orderProcessing.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.orderProcessing.probes.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.orderProcessing.probes.liveness.timeoutSeconds }}
+          failureThreshold: {{ .Values.orderProcessing.probes.liveness.failureThreshold }}
+        {{- end }}
+        {{- if .Values.orderProcessing.probes.readiness.enabled }}
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: http
+          initialDelaySeconds: {{ .Values.orderProcessing.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.orderProcessing.probes.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.orderProcessing.probes.readiness.timeoutSeconds }}
+          failureThreshold: {{ .Values.orderProcessing.probes.readiness.failureThreshold }}
+        {{- end }}
+{{- end }}
+

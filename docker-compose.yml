@@ -1,0 +1,108 @@
+services:
+  # Pub/Sub Emulator - Google Cloud service emulator
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/cloud-sdk:latest
+    container_name: pubsub-emulator
+    ports:
+      - "8085:8085"
+    command: >
+      gcloud beta emulators pubsub start
+      --host-port=0.0.0.0:8085
+      --project=playground
+    environment:
+      - PUBSUB_PROJECT_ID=playground
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pubsub-network
+
+  # Setup service - creates topics and subscriptions in the emulator
+  setup:
+    image: curlimages/curl:latest
+    container_name: setup
+    platform: linux/amd64
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+    command: >
+      sh -c "
+      echo 'Waiting for emulator to be ready...' &&
+      sleep 5 &&
+      echo 'Creating topic orders-topic...' &&
+      curl -X PUT http://pubsub-emulator:8085/v1/projects/playground/topics/orders-topic &&
+      echo 'Creating subscription order-processing-subscription...' &&
+      curl -X PUT http://pubsub-emulator:8085/v1/projects/playground/subscriptions/order-processing-subscription -H 'Content-Type: application/json' -d '{\"topic\": \"projects/playground/topics/orders-topic\"}' &&
+      echo 'Creating subscription notification-subscription...' &&
+      curl -X PUT http://pubsub-emulator:8085/v1/projects/playground/subscriptions/notification-subscription -H 'Content-Type: application/json' -d '{\"topic\": \"projects/playground/topics/orders-topic\"}' &&
+      echo 'Setup complete!'
+      "
+    networks:
+      - pubsub-network
+
+  # Producer service - publishes messages to Pub/Sub
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME:-esara}/pubsub-producer:${IMAGE_TAG:-latest}
+    container_name: producer
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+      - PUBSUB_PROJECT_ID=playground
+      - PUBSUB_TOPIC_NAME=orders-topic
+    networks:
+      - pubsub-network
+    restart: unless-stopped
+
+  # Order Processing Service
+  order-processing:
+    build:
+      context: ./order-processing
+      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME:-esara}/pubsub-order-processing:${IMAGE_TAG:-latest}
+    container_name: order-processing
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+      - PUBSUB_PROJECT_ID=playground
+      - PUBSUB_SUBSCRIPTION_NAME=order-processing-subscription
+    networks:
+      - pubsub-network
+    restart: unless-stopped
+
+  # Notification Service
+  notification:
+    build:
+      context: ./notification
+      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME:-esara}/pubsub-notification:${IMAGE_TAG:-latest}
+    container_name: notification
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+      - PUBSUB_PROJECT_ID=playground
+      - PUBSUB_SUBSCRIPTION_NAME=notification-subscription
+    networks:
+      - pubsub-network
+    restart: unless-stopped
+
+networks:
+  pubsub-network:
+    driver: bridge
+
+volumes:
+  pubsub-emulator-data:
+
