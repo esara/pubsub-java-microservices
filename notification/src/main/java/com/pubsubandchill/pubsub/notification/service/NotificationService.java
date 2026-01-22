@@ -2,6 +2,9 @@ package com.pubsubandchill.pubsub.notification.service;
 
 import com.pubsubandchill.pubsub.notification.model.Order;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import com.google.cloud.spring.pubsub.core.PubSubTemplate;
@@ -23,10 +26,27 @@ public class NotificationService {
 
     private final PubSubTemplate pubSubTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final MeterRegistry meterRegistry;
+    private final Counter messagesProcessedCounter;
+    private final Counter notificationErrorsCounter;
+    private final Timer notificationTimeTimer;
     private int messageCount = 0;
 
-    public NotificationService(PubSubTemplate pubSubTemplate) {
+    public NotificationService(PubSubTemplate pubSubTemplate, MeterRegistry meterRegistry) {
         this.pubSubTemplate = pubSubTemplate;
+        this.meterRegistry = meterRegistry;
+        this.messagesProcessedCounter = Counter.builder("pubsub.messages.processed")
+                .description("Total number of messages processed")
+                .tag("service", "notification")
+                .register(meterRegistry);
+        this.notificationErrorsCounter = Counter.builder("pubsub.messages.notification.errors")
+                .description("Total number of errors while sending notifications")
+                .tag("service", "notification")
+                .register(meterRegistry);
+        this.notificationTimeTimer = Timer.builder("pubsub.messages.notification.time")
+                .description("Time taken to send notifications")
+                .tag("service", "notification")
+                .register(meterRegistry);
     }
 
     @PostConstruct
@@ -46,6 +66,7 @@ public class NotificationService {
 
     private void subscribe() {
         pubSubTemplate.subscribe(subscriptionName, (message) -> {
+            Timer.Sample sample = Timer.start(meterRegistry);
             try {
                 messageCount++;
                 log.info("\n[{}] Received message #{}", Instant.now().toString(), messageCount);
@@ -57,13 +78,20 @@ public class NotificationService {
                 // Send notification
                 sendNotification(order);
 
+                // Increment processed messages counter
+                messagesProcessedCounter.increment();
+
                 // Acknowledge the message
                 message.ack();
                 log.info("  ✓ Message acknowledged and deleted from subscription");
             } catch (Exception e) {
+                // Increment error counter
+                notificationErrorsCounter.increment();
                 log.error("Error processing message", e);
                 // Nack the message to retry later
                 message.nack();
+            } finally {
+                sample.stop(notificationTimeTimer);
             }
         });
     }

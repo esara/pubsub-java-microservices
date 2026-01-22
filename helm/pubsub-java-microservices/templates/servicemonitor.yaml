@@ -1,0 +1,22 @@
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" }}
+---
+# ServiceMonitor for all services with prometheus-scrape label
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pubsub-java-microservices-servicemonitor
+  labels:
+    {{- if .Values.labels }}
+    {{- toYaml .Values.labels | nindent 4 }}
+    {{- end }}
+spec:
+  endpoints:
+    # Java services (Producer, Order Processing, Notification)
+    - port: http
+      path: /actuator/prometheus
+  jobLabel: pubsub-java-microservices
+  selector:
+    matchLabels:
+      prometheus-scrape: "true"
+{{- end }}
+

@@ -2,6 +2,9 @@ package com.pubsubandchill.pubsub.orderprocessing.service;
 
 import com.pubsubandchill.pubsub.orderprocessing.model.Order;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import com.google.cloud.spring.pubsub.core.PubSubTemplate;
@@ -23,10 +26,27 @@ public class OrderProcessingService {
 
     private final PubSubTemplate pubSubTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final MeterRegistry meterRegistry;
+    private final Counter messagesProcessedCounter;
+    private final Counter processingErrorsCounter;
+    private final Timer processingTimeTimer;
     private int messageCount = 0;
 
-    public OrderProcessingService(PubSubTemplate pubSubTemplate) {
+    public OrderProcessingService(PubSubTemplate pubSubTemplate, MeterRegistry meterRegistry) {
         this.pubSubTemplate = pubSubTemplate;
+        this.meterRegistry = meterRegistry;
+        this.messagesProcessedCounter = Counter.builder("pubsub.messages.processed")
+                .description("Total number of messages processed")
+                .tag("service", "order-processing")
+                .register(meterRegistry);
+        this.processingErrorsCounter = Counter.builder("pubsub.messages.processing.errors")
+                .description("Total number of errors while processing messages")
+                .tag("service", "order-processing")
+                .register(meterRegistry);
+        this.processingTimeTimer = Timer.builder("pubsub.messages.processing.time")
+                .description("Time taken to process messages")
+                .tag("service", "order-processing")
+                .register(meterRegistry);
     }
 
     @PostConstruct
@@ -46,6 +66,7 @@ public class OrderProcessingService {
 
     private void subscribe() {
         pubSubTemplate.subscribe(subscriptionName, (message) -> {
+            Timer.Sample sample = Timer.start(meterRegistry);
             try {
                 messageCount++;
                 log.info("\n[{}] Received message #{}", Instant.now().toString(), messageCount);
@@ -57,13 +78,20 @@ public class OrderProcessingService {
                 // Process the order
                 processOrder(order);
 
+                // Increment processed messages counter
+                messagesProcessedCounter.increment();
+
                 // Acknowledge the message
                 message.ack();
                 log.info("  ✓ Message acknowledged and deleted from subscription");
             } catch (Exception e) {
+                // Increment error counter
+                processingErrorsCounter.increment();
                 log.error("Error processing message", e);
                 // Nack the message to retry later
                 message.nack();
+            } finally {
+                sample.stop(processingTimeTimer);
             }
         });
     }

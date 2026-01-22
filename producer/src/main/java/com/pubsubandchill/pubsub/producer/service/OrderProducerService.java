@@ -3,6 +3,8 @@ package com.pubsubandchill.pubsub.producer.service;
 import com.pubsubandchill.pubsub.producer.model.Order;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.spring.pubsub.core.PubSubTemplate;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,6 +25,8 @@ public class OrderProducerService {
 
     private final PubSubTemplate pubSubTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Counter messagesPublishedCounter;
+    private final Counter publishErrorsCounter;
     private int orderCounter = 1;
 
     private final List<Map<String, Object>> orderTemplates = Arrays.asList(
@@ -33,8 +37,16 @@ public class OrderProducerService {
         Map.of("customer_id", "CUST-002", "items", Arrays.asList("USB-C Hub"), "total", 75.00)
     );
 
-    public OrderProducerService(PubSubTemplate pubSubTemplate) {
+    public OrderProducerService(PubSubTemplate pubSubTemplate, MeterRegistry meterRegistry) {
         this.pubSubTemplate = pubSubTemplate;
+        this.messagesPublishedCounter = Counter.builder("pubsub.messages.published")
+                .description("Total number of messages published to Pub/Sub")
+                .tag("service", "producer")
+                .register(meterRegistry);
+        this.publishErrorsCounter = Counter.builder("pubsub.messages.publish.errors")
+                .description("Total number of errors while publishing messages")
+                .tag("service", "producer")
+                .register(meterRegistry);
     }
 
     @Scheduled(fixedRate = 2000) // Publish every 2 seconds
@@ -62,11 +74,16 @@ public class OrderProducerService {
             // Publish message using PubSubTemplate (automatically handles emulator)
             String messageId = pubSubTemplate.publish(topicName, messageJson, attributes).get();
             
+            // Increment published messages counter
+            messagesPublishedCounter.increment();
+            
             log.info("[{}] Published order {} - MessageId: {}", 
                 Instant.now().toString(), orderId, messageId);
             
             orderCounter++;
         } catch (Exception e) {
+            // Increment error counter
+            publishErrorsCounter.increment();
             log.error("Error publishing message", e);
         }
     }
