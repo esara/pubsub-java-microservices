@@ -2,17 +2,21 @@ package com.pubsubandchill.pubsub.orderprocessing.service;
 
 import com.pubsubandchill.pubsub.orderprocessing.model.Order;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.cloud.pubsub.v1.AckReplyConsumer;
+import com.google.cloud.pubsub.v1.MessageReceiver;
+import com.google.cloud.pubsub.v1.Subscriber;
+import com.google.pubsub.v1.ProjectSubscriptionName;
+import com.google.pubsub.v1.PubsubMessage;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.opentelemetry.api.OpenTelemetry;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import com.google.cloud.spring.pubsub.core.PubSubTemplate;
-import com.google.cloud.spring.pubsub.support.BasicAcknowledgeablePubsubMessage;
 import org.springframework.stereotype.Service;
-
-import jakarta.annotation.PostConstruct;
-import java.time.Instant;
 
 @Slf4j
 @Service
@@ -24,16 +28,17 @@ public class OrderProcessingService {
     @Value("${pubsub.subscription-name}")
     private String subscriptionName;
 
-    private final PubSubTemplate pubSubTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final MeterRegistry meterRegistry;
     private final Counter messagesProcessedCounter;
     private final Counter processingErrorsCounter;
     private final Timer processingTimeTimer;
+    private final OpenTelemetry openTelemetry;
     private int messageCount = 0;
+    private Subscriber subscriber;
 
-    public OrderProcessingService(PubSubTemplate pubSubTemplate, MeterRegistry meterRegistry) {
-        this.pubSubTemplate = pubSubTemplate;
+    public OrderProcessingService(OpenTelemetry openTelemetry, MeterRegistry meterRegistry) {
+        this.openTelemetry = openTelemetry;
         this.meterRegistry = meterRegistry;
         this.messagesProcessedCounter = Counter.builder("pubsub.messages.processed")
                 .description("Total number of messages processed")
@@ -65,14 +70,16 @@ public class OrderProcessingService {
     }
 
     private void subscribe() {
-        pubSubTemplate.subscribe(subscriptionName, (message) -> {
+        ProjectSubscriptionName fullSubscriptionName =
+                ProjectSubscriptionName.of(projectId, subscriptionName);
+        MessageReceiver receiver = (PubsubMessage message, AckReplyConsumer consumer) -> {
             Timer.Sample sample = Timer.start(meterRegistry);
             try {
                 messageCount++;
                 log.info("\n[{}] Received message #{}", Instant.now().toString(), messageCount);
 
                 // Extract message payload
-                String payload = message.getPubsubMessage().getData().toStringUtf8();
+                String payload = message.getData().toStringUtf8();
                 Order order = objectMapper.readValue(payload, Order.class);
 
                 // Process the order
@@ -82,18 +89,36 @@ public class OrderProcessingService {
                 messagesProcessedCounter.increment();
 
                 // Acknowledge the message
-                message.ack();
+                consumer.ack();
                 log.info("  ✓ Message acknowledged and deleted from subscription");
             } catch (Exception e) {
                 // Increment error counter
                 processingErrorsCounter.increment();
                 log.error("Error processing message", e);
                 // Nack the message to retry later
-                message.nack();
+                consumer.nack();
             } finally {
                 sample.stop(processingTimeTimer);
             }
-        });
+        };
+
+        subscriber = Subscriber.newBuilder(fullSubscriptionName, receiver)
+                .setOpenTelemetry(openTelemetry)
+                .setEnableOpenTelemetryTracing(true)
+                .build();
+        subscriber.startAsync().awaitRunning();
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        if (subscriber == null) {
+            return;
+        }
+        try {
+            subscriber.stopAsync().awaitTerminated();
+        } catch (Exception e) {
+            log.warn("Failed to stop subscriber cleanly", e);
+        }
     }
 
     private void processOrder(Order order) {
